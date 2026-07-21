@@ -17,6 +17,7 @@ import Relatorios from './pages/Relatorios';
 import Auditoria from './pages/Auditoria';
 import Clientes from './pages/Clientes';
 import GerenciadorArquivos from './pages/GerenciadorArquivos';
+import PagamentoRapido from './pages/PagamentoRapido';
 // import AutomacaoPortal from './pages/AutomacaoPortal'; // REMOVIDO
 
 function App() {
@@ -42,6 +43,7 @@ function App() {
                 <Route path="/clientes" element={<Clientes />} />
                 <Route path="/arquivos" element={<GerenciadorArquivos />} />
                 <Route path="/arquivos/pagamento/:pagamento_id" element={<GerenciadorArquivos />} />
+                <Route path="/pagamento-rapido" element={<PagamentoRapido />} />
                 {/* <Route path="/automacao" element={<AutomacaoPortal />} /> // REMOVIDO */}
               </Route>
             </Routes>
