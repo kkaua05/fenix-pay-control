@@ -27,6 +27,7 @@ const MainLayout = ({ children }) => {
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/pagamentos', label: 'Pagamentos', icon: '💳' },
     { path: '/pagamentos/novo', label: 'Novo Pagamento', icon: '➕' },
+    { path: '/pagamento-rapido', label: 'Pagamento Rápido', icon: '📸' },
     { path: '/clientes', label: 'Clientes', icon: '👤' },
     { path: '/arquivos', label: 'Arquivos', icon: '📁' },
     { path: '/relatorios', label: 'Relatórios', icon: '📈' },
