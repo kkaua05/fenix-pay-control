@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "migrate": "node src/migrations/run.js",
-    "postinstall": "npx playwright install chromium"
+    "vercel-build": "npm install --omit=dev"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -19,7 +19,6 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.11.3",
-    "playwright": "^1.40.1",
     "socket.io": "^4.7.2",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
