@@ -94,7 +94,7 @@ const getById = async (req, res) => {
 };
 
 // ============================================================
-// CRIAR NOVO PAGAMENTO - CORRIGIDO
+// CRIAR NOVO PAGAMENTO - CORRIGIDO (suporta Vercel + Local)
 // ============================================================
 
 const create = async (req, res) => {
@@ -139,7 +139,20 @@ const create = async (req, res) => {
       });
     }
 
-    const comprovante = req.file ? req.file.filename : null;
+    // Handle comprovante: disk vs memory (Vercel)
+    let comprovante = null;
+    if (req.file) {
+      if (req.file.buffer) {
+        // Memory storage (Vercel) - store as base64 inline reference
+        const base64 = req.file.buffer.toString('base64');
+        const mimeType = req.file.mimetype;
+        // Store as inline base64 data URI
+        comprovante = `data:${mimeType};base64,${base64}`;
+      } else if (req.file.filename) {
+        // Disk storage (local)
+        comprovante = req.file.filename;
+      }
+    }
 
     // Criar pagamento
     const pagamento = await createPagamento({
@@ -169,7 +182,7 @@ const create = async (req, res) => {
     // Buscar pagamento completo com dados do usuário
     const pagamentoCompleto = await findPagamentoById(pagamento.id);
 
-    // Emitir evento em tempo real
+    // Emitir evento em tempo real (apenas local, ignora erro em serverless)
     try {
       const { getIO } = require('../services/socketService');
       const io = getIO();
@@ -185,7 +198,7 @@ const create = async (req, res) => {
         });
       }
     } catch (socketError) {
-      logger.warn('⚠️ Erro ao emitir evento socket:', socketError.message);
+      // Silently ignore socket errors on serverless
     }
 
     return res.status(201).json({
@@ -222,7 +235,13 @@ const update = async (req, res) => {
     }
 
     if (req.file) {
-      data.comprovante = req.file.filename;
+      if (req.file.buffer) {
+        const base64 = req.file.buffer.toString('base64');
+        const mimeType = req.file.mimetype;
+        data.comprovante = `data:${mimeType};base64,${base64}`;
+      } else if (req.file.filename) {
+        data.comprovante = req.file.filename;
+      }
     }
 
     if (data.valor) data.valor = parseFloat(data.valor);

@@ -3,21 +3,30 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 
-const uploadDir = path.join(__dirname, '../../uploads/comprovantes');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const isVercel = !!process.env.VERCEL;
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `${uuidv4()}-${Date.now()}${ext}`;
-    cb(null, filename);
+// Vercel: use memory storage (no disk writes allowed)
+// Local: use disk storage
+let storage;
+
+if (isVercel) {
+  storage = multer.memoryStorage();
+} else {
+  const uploadDir = path.join(__dirname, '../../uploads/comprovantes');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
   }
-});
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      const filename = `${uuidv4()}-${Date.now()}${ext}`;
+      cb(null, filename);
+    }
+  });
+}
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
@@ -32,7 +41,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024
   }
 });
 

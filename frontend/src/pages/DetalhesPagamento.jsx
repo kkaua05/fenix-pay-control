@@ -588,14 +588,20 @@ const DetalhesPagamento = () => {
             <h3 style={{ color: '#FFFFFF', fontSize: '1rem' }}>
               📎 Comprovante
             </h3>
-            <a
-              href={`/uploads/comprovantes/${pagamento.comprovante}`}
-              download
-              className="btn-primary"
-              style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-            >
-              ⬇️ Baixar
-            </a>
+            {pagamento.comprovante && !pagamento.comprovante.startsWith('data:') ? (
+              <a
+                href={`/uploads/comprovantes/${pagamento.comprovante}`}
+                download
+                className="btn-primary"
+                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+              >
+                ⬇️ Baixar
+              </a>
+            ) : (
+              <span style={{ color: '#6B7280', fontSize: '0.85rem' }}>
+                📎 Comprovante
+              </span>
+            )}
           </div>
           <div style={{ 
             display: 'flex', 
@@ -606,29 +612,35 @@ const DetalhesPagamento = () => {
             padding: '20px',
             minHeight: '400px'
           }}>
-            {pagamento.comprovante.match(/\.(jpg|jpeg|png)$/i) ? (
-              <img
-                src={`/uploads/comprovantes/${pagamento.comprovante}`}
-                alt="Comprovante"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '600px',
-                  objectFit: 'contain',
-                  borderRadius: '8px'
-                }}
-              />
-            ) : (
-              <iframe
-                src={`/uploads/comprovantes/${pagamento.comprovante}`}
-                style={{
-                  width: '100%',
-                  height: '600px',
-                  border: 'none',
-                  borderRadius: '8px'
-                }}
-                title="Comprovante PDF"
-              />
-            )}
+            {(() => {
+              const isDataUri = pagamento.comprovante.startsWith('data:');
+              const isImage = isDataUri || pagamento.comprovante.match(/\.(jpg|jpeg|png)$/i);
+              const comprovanteSrc = isDataUri ? pagamento.comprovante : `/uploads/comprovantes/${pagamento.comprovante}`;
+              
+              return isImage ? (
+                <img
+                  src={comprovanteSrc}
+                  alt="Comprovante"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '600px',
+                    objectFit: 'contain',
+                    borderRadius: '8px'
+                  }}
+                />
+              ) : (
+                <iframe
+                  src={comprovanteSrc}
+                  style={{
+                    width: '100%',
+                    height: '600px',
+                    border: 'none',
+                    borderRadius: '8px'
+                  }}
+                  title="Comprovante PDF"
+                />
+              );
+            })()}
           </div>
         </div>
       )}
@@ -670,14 +682,16 @@ const DetalhesPagamento = () => {
                 📎 Comprovante - #{pagamento.id}
               </h3>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <a
-                  href={`/uploads/comprovantes/${pagamento.comprovante}`}
-                  download
-                  className="btn-primary"
-                  style={{ padding: '6px 16px', fontSize: '0.85rem' }}
-                >
-                  ⬇️ Baixar
-                </a>
+                {pagamento.comprovante && !pagamento.comprovante.startsWith('data:') ? (
+                  <a
+                    href={`/uploads/comprovantes/${pagamento.comprovante}`}
+                    download
+                    className="btn-primary"
+                    style={{ padding: '6px 16px', fontSize: '0.85rem' }}
+                  >
+                    ⬇️ Baixar
+                  </a>
+                ) : null}
                 <button
                   onClick={() => setShowComprovante(false)}
                   style={{
@@ -710,29 +724,35 @@ const DetalhesPagamento = () => {
               maxHeight: '70vh',
               overflow: 'auto'
             }}>
-              {pagamento.comprovante.match(/\.(jpg|jpeg|png)$/i) ? (
-                <img
-                  src={`/uploads/comprovantes/${pagamento.comprovante}`}
-                  alt="Comprovante"
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '60vh',
-                    objectFit: 'contain',
-                    borderRadius: '8px'
-                  }}
-                />
-              ) : (
-                <iframe
-                  src={`/uploads/comprovantes/${pagamento.comprovante}`}
-                  style={{
-                    width: '100%',
-                    height: '60vh',
-                    border: 'none',
-                    borderRadius: '8px'
-                  }}
-                  title="Comprovante PDF"
-                />
-              )}
+              {(() => {
+                const isDataUri = pagamento.comprovante.startsWith('data:');
+                const isImage = isDataUri || pagamento.comprovante.match(/\.(jpg|jpeg|png)$/i);
+                const comprovanteSrc = isDataUri ? pagamento.comprovante : `/uploads/comprovantes/${pagamento.comprovante}`;
+                
+                return isImage ? (
+                  <img
+                    src={comprovanteSrc}
+                    alt="Comprovante"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '60vh',
+                      objectFit: 'contain',
+                      borderRadius: '8px'
+                    }}
+                  />
+                ) : (
+                  <iframe
+                    src={comprovanteSrc}
+                    style={{
+                      width: '100%',
+                      height: '60vh',
+                      border: 'none',
+                      borderRadius: '8px'
+                    }}
+                    title="Comprovante PDF"
+                  />
+                );
+              })()}
             </div>
           </div>
         </div>
