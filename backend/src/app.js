@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
-require('dotenv').config();
+// Load .env file locally only (Vercel uses env vars from dashboard)
+try { require('dotenv').config(); } catch (e) { /* ignore on Vercel */ }
 
 const authRoutes = require('./routes/authRoutes');
 const pagamentoRoutes = require('./routes/pagamentoRoutes');
