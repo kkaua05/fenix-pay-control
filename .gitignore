@@ -11,3 +11,4 @@ Thumbs.db
 api/node_modules/
 .vercel
 backend/uploads/
+.env*
