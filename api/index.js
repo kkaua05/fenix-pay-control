@@ -9,10 +9,12 @@
 
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 
 try { require('dotenv').config(); } catch(e) { /* Vercel fornece env vars via dashboard */ }
 
 const app = express();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ============================================================
 // MIDDLEWARES
@@ -222,9 +224,11 @@ app.get('/api/pagamentos', auth, async (req, res) => {
 });
 
 // Criar Pagamento
-app.post('/api/pagamentos', auth, async (req, res) => {
+app.post('/api/pagamentos', auth, upload.single('comprovante'), async (req, res) => {
   try {
-    const {cliente_id,cliente_nome,valor,forma_pagamento,bandeira,parcelas,observacoes,comprovante}=req.body;
+    const {cliente_id,cliente_nome,valor,forma_pagamento,bandeira,parcelas,observacoes}=req.body;
+    let comprovante = req.body.comprovante || null;
+    if (req.file) comprovante = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     if(!cliente_id||!cliente_nome||!valor||!forma_pagamento) return res.status(400).json({success:false,message:'Campos obrigatórios faltando'});
     const result = await query(`INSERT INTO pagamentos (cliente_id,cliente_nome,valor,forma_pagamento,bandeira,parcelas,observacoes,comprovante,usuario_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [String(cliente_id),String(cliente_nome),parseFloat(valor),String(forma_pagamento),bandeira||'VISA',parseInt(parcelas)||1,observacoes||null,comprovante||null,parseInt(req.user.id)]);
@@ -387,7 +391,7 @@ app.put('/api/usuarios/:id', auth, isAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/usuarios/:id/reset-password', auth, isAdmin, async (req, res) => {
+app.put('/api/usuarios/:id/reset-password', auth, isAdmin, async (req, res) => {
   try {
     const {nova_senha}=req.body;
     if(!nova_senha||nova_senha.length<6) return res.status(400).json({success:false,message:'Senha deve ter 6+ caracteres'});

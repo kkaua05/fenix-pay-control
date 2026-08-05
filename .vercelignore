@@ -1,2 +1,6 @@
 backend-legacy/
 node_modules/
+frontend/.env
+frontend/.env.local
+.env
+.env.local
