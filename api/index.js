@@ -10,10 +10,13 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const crypto = require('crypto');
+const { put, del } = require('@vercel/blob');
 
 try { require('dotenv').config(); } catch(e) { /* Vercel fornece env vars via dashboard */ }
 
 const app = express();
+app.set('trust proxy', true);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ============================================================
@@ -454,22 +457,277 @@ app.get('/api/logs', auth, isAdmin, async (req, res) => {
 });
 
 // ARQUIVOS
+let arquivosSchemaReady = false;
+async function ensureArquivosSchema() {
+  if (arquivosSchemaReady) return;
+  await query(`CREATE TABLE IF NOT EXISTS pastas (id SERIAL PRIMARY KEY, nome VARCHAR(255) NOT NULL, descricao TEXT, cor VARCHAR(20) DEFAULT '#FF6B00', icone VARCHAR(10) DEFAULT '📁', pasta_pai_id INTEGER REFERENCES pastas(id) ON DELETE SET NULL, usuario_id INTEGER REFERENCES usuarios(id), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+  await query(`CREATE TABLE IF NOT EXISTS compartilhamentos (id SERIAL PRIMARY KEY, arquivo_id INTEGER REFERENCES arquivos(id) ON DELETE CASCADE, token VARCHAR(64) UNIQUE NOT NULL, data_expiracao TIMESTAMP, permissoes VARCHAR(20) DEFAULT 'visualizar', max_downloads INTEGER DEFAULT 0, downloads_count INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+  await query(`ALTER TABLE arquivos ADD COLUMN IF NOT EXISTS pasta_id INTEGER REFERENCES pastas(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE arquivos ADD COLUMN IF NOT EXISTS destaque BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE compartilhamentos ADD COLUMN IF NOT EXISTS max_downloads INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE compartilhamentos ADD COLUMN IF NOT EXISTS downloads_count INTEGER DEFAULT 0`);
+  arquivosSchemaReady = true;
+}
+app.use('/api/arquivos', async (req, res, next) => {
+  try { await ensureArquivosSchema(); next(); }
+  catch (error) { res.status(500).json({ success: false, message: 'Erro ao preparar armazenamento: ' + error.message }); }
+});
+app.use('/api/compartilhado', async (req, res, next) => {
+  try { await ensureArquivosSchema(); next(); }
+  catch (error) { res.status(500).json({ success: false, message: 'Erro interno' }); }
+});
+
+const ORDER_WHITELIST = ['a.created_at DESC','a.created_at ASC','a.nome_original ASC','a.tamanho DESC','a.downloads DESC'];
+const detectCategoria = (mimetype, filename) => {
+  const m = mimetype || '', f = (filename || '').toLowerCase();
+  if (m.includes('pdf')) return 'pdf';
+  if (m.includes('image')) return 'imagem';
+  if (m.includes('sheet') || m.includes('excel') || /\.(xlsx|xls|csv)$/.test(f)) return 'planilha';
+  return 'documento';
+};
+const toTagsArray = (tags) => {
+  if (Array.isArray(tags)) return tags.map(t => String(t).trim()).filter(Boolean);
+  if (typeof tags === 'string') return tags.split(',').map(t => t.trim()).filter(Boolean);
+  return [];
+};
+const mapArquivo = (row) => ({
+  ...row,
+  tags: Array.isArray(row.tags) ? row.tags : [],
+  url: row.caminho || null
+});
+const uploadToBlob = async (file) => {
+  const safeName = file.originalname.replace(/[^\w.\-]+/g, '_');
+  const blob = await put(`arquivos/${Date.now()}-${safeName}`, file.buffer, { access: 'public', contentType: file.mimetype, addRandomSuffix: true });
+  return blob;
+};
+
+// Pastas
+app.get('/api/arquivos/pastas/listar', auth, async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM pastas ORDER BY nome');
+    res.json({ success: true, data: result.rows || [] });
+  } catch (error) {
+    res.status(500).json({ success: false, data: [] });
+  }
+});
+
+app.post('/api/arquivos/pastas', auth, async (req, res) => {
+  try {
+    const { nome, descricao, cor, icone, pasta_pai_id } = req.body;
+    if (!nome) return res.status(400).json({ success: false, message: 'Nome da pasta é obrigatório' });
+    const result = await query(
+      `INSERT INTO pastas (nome,descricao,cor,icone,pasta_pai_id,usuario_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [nome, descricao || null, cor || '#FF6B00', icone || '📁', pasta_pai_id || null, req.user.id]
+    );
+    res.status(201).json({ success: true, data: result.rows[0], message: 'Pasta criada!' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao criar pasta' });
+  }
+});
+
+// Estatísticas
+app.get('/api/arquivos/estatisticas', auth, async (req, res) => {
+  try {
+    const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const [geral] = await Promise.all([
+      query(`SELECT COUNT(*) as total_arquivos, COALESCE(SUM(tamanho),0) as tamanho_total, COALESCE(SUM(downloads),0) as total_downloads, COUNT(*) FILTER (WHERE destaque=true) as favoritos, COUNT(*) FILTER (WHERE created_at>=$1) as arquivos_semana FROM arquivos`, [sevenDaysAgo])
+    ]);
+    const g = geral.rows[0] || {};
+    res.json({ success: true, data: { geral: {
+      total_arquivos: parseInt(g.total_arquivos) || 0,
+      tamanho_total: parseInt(g.tamanho_total) || 0,
+      total_downloads: parseInt(g.total_downloads) || 0,
+      favoritos: parseInt(g.favoritos) || 0,
+      arquivos_semana: parseInt(g.arquivos_semana) || 0
+    } } });
+  } catch (error) {
+    res.status(500).json({ success: false, data: null });
+  }
+});
+
+// Upload múltiplo
+app.post('/api/arquivos/multiplo', auth, upload.array('arquivos', 20), async (req, res) => {
+  try {
+    if (!req.files || !req.files.length) return res.status(400).json({ success: false, message: 'Nenhum arquivo enviado' });
+    const { categoria, descricao, pagamento_id } = req.body;
+    const criados = [];
+    for (const file of req.files) {
+      const blob = await uploadToBlob(file);
+      const cat = (categoria && categoria !== 'auto') ? categoria : detectCategoria(file.mimetype, file.originalname);
+      const result = await query(
+        `INSERT INTO arquivos (nome_original,nome_arquivo,caminho,tamanho,tipo,categoria,descricao,pagamento_id,usuario_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [file.originalname, blob.pathname, blob.url, file.size, file.mimetype, cat, descricao || null, pagamento_id ? parseInt(pagamento_id) : null, req.user.id]
+      );
+      criados.push(result.rows[0]);
+    }
+    res.status(201).json({ success: true, data: criados.map(mapArquivo), message: `${criados.length} arquivos enviados!` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao enviar arquivos: ' + error.message });
+  }
+});
+
+// Exclusão em massa
+app.post('/api/arquivos/bulk-delete', auth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ success: false, message: 'Nenhum arquivo selecionado' });
+    const result = await query('SELECT * FROM arquivos WHERE id = ANY($1)', [ids]);
+    const deletableIds = [];
+    for (const arquivo of result.rows) {
+      if (req.user.perfil !== 'ADMIN' && arquivo.usuario_id !== req.user.id) continue;
+      try { await del(arquivo.caminho); } catch (e) { /* já removido do blob */ }
+      deletableIds.push(arquivo.id);
+    }
+    if (deletableIds.length) await query('DELETE FROM arquivos WHERE id = ANY($1)', [deletableIds]);
+    res.json({ success: true, message: `${deletableIds.length} arquivo(s) excluído(s)!` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao excluir arquivos' });
+  }
+});
+
+// Listar
 app.get('/api/arquivos', auth, async (req, res) => {
   try {
     const page=parseInt(req.query.page)||1,limit=parseInt(req.query.limit)||20,offset=(page-1)*limit;
-    const {search,categoria,pagamento_id}=req.query;
+    const {search,categoria,pagamento_id,pasta_id,orderBy}=req.query;
     let where=[],values=[],pc=1;
     if(search){where.push(`(nome_original ILIKE $${pc} OR descricao ILIKE $${pc} OR categoria ILIKE $${pc})`);values.push(`%${search}%`);pc++;}
     if(categoria){where.push(`categoria=$${pc}`);values.push(categoria);pc++;}
     if(pagamento_id){where.push(`pagamento_id=$${pc}`);values.push(parseInt(pagamento_id));pc++;}
+    if(pasta_id){where.push(`pasta_id=$${pc}`);values.push(parseInt(pasta_id));pc++;}
     const w = where.length?`WHERE ${where.join(' AND ')}`:'';
-    const [result,count]=await Promise.all([
-      query(`SELECT a.*,u.nome as usuario_nome,u.usuario as usuario_login FROM arquivos a LEFT JOIN usuarios u ON a.usuario_id=u.id ${w} ORDER BY a.created_at DESC LIMIT $${pc} OFFSET $${pc+1}`,[...values,limit,offset]),
-      query(`SELECT COUNT(*) as total FROM arquivos a ${w}`,values)
+    const order = ORDER_WHITELIST.includes(orderBy) ? orderBy : 'a.created_at DESC';
+    const [result,count,sizeRes]=await Promise.all([
+      query(`SELECT a.*,u.nome as usuario_nome,u.usuario as usuario_login FROM arquivos a LEFT JOIN usuarios u ON a.usuario_id=u.id ${w} ORDER BY ${order} LIMIT $${pc} OFFSET $${pc+1}`,[...values,limit,offset]),
+      query(`SELECT COUNT(*) as total FROM arquivos a ${w}`,values),
+      query(`SELECT COALESCE(SUM(tamanho),0) as total_size FROM arquivos a ${w}`,values)
     ]);
-    res.json({success:true,data:result.rows||[],pagination:{page,limit,total:parseInt(count.rows[0]?.total||0),pages:Math.ceil(parseInt(count.rows[0]?.total||0)/limit)}});
+    res.json({success:true,data:(result.rows||[]).map(mapArquivo),pagination:{page,limit,total:parseInt(count.rows[0]?.total||0),pages:Math.ceil(parseInt(count.rows[0]?.total||0)/limit),totalSize:parseInt(sizeRes.rows[0]?.total_size||0)}});
   } catch(error){
     res.status(500).json({success:false,data:[],pagination:{page:1,limit:20,total:0,pages:0}});
+  }
+});
+
+// Upload único
+app.post('/api/arquivos', auth, upload.single('arquivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'Nenhum arquivo enviado' });
+    const { categoria, descricao, tags, pagamento_id, cliente_id } = req.body;
+    const blob = await uploadToBlob(req.file);
+    const cat = (categoria && categoria !== 'auto') ? categoria : detectCategoria(req.file.mimetype, req.file.originalname);
+    const result = await query(
+      `INSERT INTO arquivos (nome_original,nome_arquivo,caminho,tamanho,tipo,categoria,descricao,tags,pagamento_id,cliente_id,usuario_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [req.file.originalname, blob.pathname, blob.url, req.file.size, req.file.mimetype, cat, descricao || null, toTagsArray(tags), pagamento_id ? parseInt(pagamento_id) : null, cliente_id ? parseInt(cliente_id) : null, req.user.id]
+    );
+    res.status(201).json({ success: true, data: mapArquivo(result.rows[0]), message: 'Arquivo enviado!' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao enviar arquivo: ' + error.message });
+  }
+});
+
+// Download (proxy do blob, mantém nome original e conta o download)
+app.get('/api/arquivos/:id/download', auth, async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM arquivos WHERE id=$1', [req.params.id]);
+    const arquivo = result.rows[0];
+    if (!arquivo) return res.status(404).json({ success: false, message: 'Arquivo não encontrado' });
+    const blobRes = await fetch(arquivo.caminho);
+    if (!blobRes.ok) return res.status(404).json({ success: false, message: 'Arquivo indisponível no armazenamento' });
+    const buffer = Buffer.from(await blobRes.arrayBuffer());
+    await query('UPDATE arquivos SET downloads=downloads+1 WHERE id=$1', [req.params.id]);
+    res.set('Content-Type', arquivo.tipo || 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(arquivo.nome_original)}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao baixar arquivo' });
+  }
+});
+
+// Favoritar / destacar
+app.post('/api/arquivos/:id/favoritar', auth, async (req, res) => {
+  try {
+    const result = await query('UPDATE arquivos SET destaque = NOT COALESCE(destaque,false) WHERE id=$1 RETURNING *', [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ success: false, message: 'Arquivo não encontrado' });
+    res.json({ success: true, data: mapArquivo(result.rows[0]) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao favoritar' });
+  }
+});
+
+// Compartilhar
+app.post('/api/arquivos/:id/compartilhar', auth, async (req, res) => {
+  try {
+    const arquivoResult = await query('SELECT id FROM arquivos WHERE id=$1', [req.params.id]);
+    if (!arquivoResult.rows[0]) return res.status(404).json({ success: false, message: 'Arquivo não encontrado' });
+    const { data_expiracao, permissoes, max_downloads } = req.body;
+    const token = crypto.randomBytes(24).toString('hex');
+    await query(
+      `INSERT INTO compartilhamentos (arquivo_id,token,data_expiracao,permissoes,max_downloads) VALUES ($1,$2,$3,$4,$5)`,
+      [req.params.id, token, data_expiracao || null, permissoes || 'visualizar', parseInt(max_downloads) || 0]
+    );
+    const url = `${req.protocol}://${req.get('host')}/api/compartilhado/${token}`;
+    res.json({ success: true, data: { url, token } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao gerar link de compartilhamento' });
+  }
+});
+
+// Acesso público via link compartilhado (sem autenticação)
+app.get('/api/compartilhado/:token', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT c.*, a.nome_original, a.tipo, a.caminho FROM compartilhamentos c JOIN arquivos a ON a.id=c.arquivo_id WHERE c.token=$1`,
+      [req.params.token]
+    );
+    const share = result.rows[0];
+    if (!share) return res.status(404).json({ success: false, message: 'Link inválido' });
+    if (share.data_expiracao && new Date(share.data_expiracao) < new Date()) return res.status(410).json({ success: false, message: 'Link expirado' });
+    if (share.max_downloads > 0 && share.downloads_count >= share.max_downloads) return res.status(410).json({ success: false, message: 'Limite de downloads atingido' });
+    const blobRes = await fetch(share.caminho);
+    if (!blobRes.ok) return res.status(404).json({ success: false, message: 'Arquivo indisponível' });
+    const buffer = Buffer.from(await blobRes.arrayBuffer());
+    await query('UPDATE compartilhamentos SET downloads_count=downloads_count+1 WHERE id=$1', [share.id]);
+    res.set('Content-Type', share.tipo || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(share.nome_original)}"`);
+    res.send(buffer);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao acessar link' });
+  }
+});
+
+// Atualizar metadados
+app.put('/api/arquivos/:id', auth, async (req, res) => {
+  try {
+    const { descricao, tags, categoria, destaque, publico } = req.body;
+    const fields = [], values = []; let pc = 1;
+    if (descricao !== undefined) { fields.push(`descricao=$${pc}`); values.push(descricao); pc++; }
+    if (tags !== undefined) { fields.push(`tags=$${pc}`); values.push(toTagsArray(tags)); pc++; }
+    if (categoria !== undefined) { fields.push(`categoria=$${pc}`); values.push(categoria); pc++; }
+    if (destaque !== undefined) { fields.push(`destaque=$${pc}`); values.push(!!destaque); pc++; }
+    if (publico !== undefined) { fields.push(`publico=$${pc}`); values.push(!!publico); pc++; }
+    if (!fields.length) return res.status(400).json({ success: false, message: 'Nenhum campo para atualizar' });
+    fields.push('updated_at=CURRENT_TIMESTAMP');
+    values.push(req.params.id);
+    const result = await query(`UPDATE arquivos SET ${fields.join(',')} WHERE id=$${pc} RETURNING *`, values);
+    if (!result.rows[0]) return res.status(404).json({ success: false, message: 'Arquivo não encontrado' });
+    res.json({ success: true, data: mapArquivo(result.rows[0]), message: 'Arquivo atualizado!' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao atualizar arquivo' });
+  }
+});
+
+// Excluir
+app.delete('/api/arquivos/:id', auth, async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM arquivos WHERE id=$1', [req.params.id]);
+    const arquivo = result.rows[0];
+    if (!arquivo) return res.status(404).json({ success: false, message: 'Arquivo não encontrado' });
+    if (req.user.perfil !== 'ADMIN' && arquivo.usuario_id !== req.user.id) return res.status(403).json({ success: false, message: 'Sem permissão para excluir este arquivo' });
+    try { await del(arquivo.caminho); } catch (e) { /* já removido do blob */ }
+    await query('DELETE FROM arquivos WHERE id=$1', [req.params.id]);
+    res.json({ success: true, message: 'Arquivo excluído!' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erro ao excluir arquivo' });
   }
 });
 

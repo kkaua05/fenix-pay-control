@@ -950,13 +950,13 @@ const GerenciadorArquivos = () => {
             {/* Content */}
             <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '300px', maxHeight: '70vh', overflow: 'auto', background: 'rgba(0,0,0,0.3)' }}>
               {isImage(viewArquivo.tipo) ? (
-                <img src={`/uploads/arquivos/${viewArquivo.categoria}/${viewArquivo.nome_arquivo}`}
+                <img src={viewArquivo.url}
                   alt={viewArquivo.nome_original}
                   style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain', borderRadius: '8px' }}
                   onError={(e) => { e.target.style.display = 'none'; e.target.parentElement.innerHTML = '<div style="text-align:center;padding:40px;color:#6B7280">🖼️<br>Imagem indisponível</div>'; }}
                 />
               ) : isPDF(viewArquivo.tipo) ? (
-                <iframe src={`/uploads/arquivos/${viewArquivo.categoria}/${viewArquivo.nome_arquivo}`}
+                <iframe src={viewArquivo.url}
                   style={{ width: '100%', height: '60vh', border: 'none', borderRadius: '8px', background: '#FFF' }}
                   title={viewArquivo.nome_original} />
               ) : (
