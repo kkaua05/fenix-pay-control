@@ -17,24 +17,13 @@ export const SocketProvider = ({ children }) => {
   const [connected, setConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
 
+  // O backend roda como serverless function no Vercel (sem processo persistente),
+  // por isso nao ha servidor socket.io para se conectar. Tentar conectar aqui so
+  // gera erros de WebSocket infinitos no console sem nenhum beneficio. `connected`
+  // permanece false e os metodos on/off/emit continuam seguros (no-op) via
+  // socketService. Reativar isso exigiria hospedar um servidor sempre ativo.
   useEffect(() => {
-    if (isAuthenticated && user) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        socketService.connect(token);
-        setConnected(true);
-
-        // Escutar usuários online
-        socketService.on('users:online', (users) => {
-          setOnlineUsers(users);
-        });
-
-        return () => {
-          socketService.disconnect();
-          setConnected(false);
-        };
-      }
-    }
+    setConnected(false);
   }, [isAuthenticated, user]);
 
   const value = {
