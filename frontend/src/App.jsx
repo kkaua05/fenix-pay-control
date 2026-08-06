@@ -19,6 +19,7 @@ import Clientes from './pages/Clientes';
 import GerenciadorArquivos from './pages/GerenciadorArquivos';
 import PagamentoRapido from './pages/PagamentoRapido';
 import BuscarFatura from './pages/BuscarFatura';
+import BoletosIXC from './pages/BoletosIXC';
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
                 <Route path="/arquivos/pagamento/:pagamento_id" element={<GerenciadorArquivos />} />
                 <Route path="/pagamento-rapido" element={<PagamentoRapido />} />
                 <Route path="/faturas/buscar" element={<BuscarFatura />} />
+                <Route path="/faturas/boletos-ixc" element={<BoletosIXC />} />
               </Route>
             </Routes>
             

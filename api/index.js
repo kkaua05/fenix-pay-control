@@ -776,6 +776,53 @@ app.post('/api/faturas/buscar-portal', auth, async (req, res) => {
   }
 });
 
+// BOLETOS - Automacao do Painel Administrativo IXC (conta de servico)
+app.post('/api/faturas/buscar-ixc-boletos', auth, isAdmin, async (req, res) => {
+  try {
+    await ensureArquivosSchema();
+    const { cpf } = req.body;
+    if (!cpf) return res.status(400).json({ success: false, message: 'CPF é obrigatório' });
+
+    const { buscarBoletosAbertos } = require('./ixcBoletos');
+    const resultado = await buscarBoletosAbertos(cpf);
+
+    if (resultado.semBoletosPendentes) {
+      return res.json({ success: true, semBoletosPendentes: true, cliente: resultado.cliente });
+    }
+
+    const cpfDigits = String(cpf).replace(/\D/g, '');
+    const clienteMatch = await query(
+      `SELECT id FROM clientes WHERE regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1 LIMIT 1`,
+      [cpfDigits]
+    );
+    const clienteId = clienteMatch.rows[0]?.id || null;
+
+    const nomeArquivo = `Boletos ${resultado.cliente.nome || cpfDigits} ${Date.now()}.pdf`;
+    const blob = await put(`boletos/${Date.now()}-${nomeArquivo.replace(/[^\w.\-]+/g, '_')}`, resultado.pdfBuffer, {
+      access: 'public', contentType: 'application/pdf', addRandomSuffix: true
+    });
+
+    const totalValor = resultado.titulos.reduce((s, t) => s + (parseFloat((t.valor || '0').replace('.', '').replace(',', '.')) || 0), 0);
+    const descricao = `${resultado.titulos.length} boleto(s) em aberto · Total R$ ${totalValor.toFixed(2)} · Cliente: ${resultado.cliente.nome} (IXC #${resultado.cliente.id})`;
+    const insert = await query(
+      `INSERT INTO arquivos (nome_original,nome_arquivo,caminho,tamanho,tipo,categoria,descricao,cliente_id,usuario_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [nomeArquivo, blob.pathname, blob.url, resultado.pdfBuffer.length, 'application/pdf', 'boleto', descricao, clienteId, req.user.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      semBoletosPendentes: false,
+      cliente: resultado.cliente,
+      titulos: resultado.titulos,
+      totalValor,
+      clienteVinculado: !!clienteId,
+      arquivo: mapArquivo(insert.rows[0])
+    });
+  } catch (error) {
+    res.status(502).json({ success: false, message: 'Falha ao buscar boletos no IXC: ' + error.message });
+  }
+});
+
 // ============================================================
 // 404 Handler
 // ============================================================
