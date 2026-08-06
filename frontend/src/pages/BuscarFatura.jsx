@@ -31,7 +31,7 @@ const BuscarFatura = () => {
     setErro(null);
     setResultado(null);
     try {
-      const response = await api.post('/faturas/buscar-portal', { cpf: cpfDigits });
+      const response = await api.post('/faturas/buscar-portal', { cpf: cpfDigits }, { timeout: 58000 });
       setResultado(response.data);
       if (response.data.semFaturaPendente) {
         showToast(`✅ ${response.data.cliente.nome} não tem faturas pendentes`, 'success');
@@ -39,7 +39,9 @@ const BuscarFatura = () => {
         showToast('✅ Fatura importada para o Gerenciador de Arquivos!', 'success');
       }
     } catch (error) {
-      const msg = error.response?.data?.message || 'Erro ao buscar fatura no portal';
+      const msg = error.response?.data?.message
+        || (error.code === 'ECONNABORTED' ? 'O portal demorou demais para responder. Tente novamente.' : null)
+        || 'Erro ao buscar fatura no portal';
       setErro(msg);
       showToast(msg, 'error');
     } finally {
