@@ -75,13 +75,22 @@ async function login(page, email, senha) {
   frame = findLoginFrame(page);
   if (frame) throw new Error('Nao foi possivel autenticar no IXC (verifique e-mail/senha configurados, ou ha uma sessao presa que nao foi possivel encerrar)');
 
-  // Modal de configuracao de 2FA pode aparecer no primeiro acesso da sessao;
-  // dispensamos sem ativar (o botao so "adia" o aviso, nao habilita nada)
+  // Modal de configuracao de 2FA pode aparecer com atraso apos o login; dispensamos
+  // sem ativar (o botao so "adia" o aviso, nao habilita nada). Espera ativamente
+  // por ele em vez de checar so uma vez, ja que pode nao ter renderizado ainda.
   const cancelBtn = page.locator('button[class*="button2FACancel"]');
-  if (await cancelBtn.count() > 0) {
+  try {
+    await cancelBtn.waitFor({ state: 'attached', timeout: 6000 });
     await cancelBtn.click();
     await page.waitForTimeout(1000);
-  }
+  } catch { /* modal nao apareceu neste login - segue normalmente */ }
+
+  // Garantia final: qualquer overlay de fundo restante (outro modal/aviso) nao
+  // deve bloquear a interacao com o dashboard.
+  await page.evaluate(() => {
+    const bg = document.querySelector('#backgroundContent');
+    if (bg) bg.remove();
+  });
 }
 
 async function buscarBoletosAbertos(cpfInput) {
@@ -106,23 +115,27 @@ async function buscarBoletosAbertos(cpfInput) {
 
     // A busca do IXC as vezes retorna mais de um registro (ex: dependentes no mesmo
     // endereco); usamos o card cujo CPF exibido bate exatamente com o pesquisado.
-    const nameSpan = page.locator('span.id_razao_fantasia');
-    const total = await nameSpan.count();
-    let clienteId = null;
-    let clienteNome = null;
-    for (let i = 0; i < total; i++) {
-      const container = nameSpan.nth(i).locator('xpath=ancestor::li[contains(@class,"x-cmp-searchbar-registro-listMaster")]');
-      // O span tem CPF, e-mail e endereco juntos (separados por <br>); pega so a primeira linha (o CPF)
-      const cpfText = await container.locator('span.cnpj_cpf_email_entereco').evaluate((el) => el.childNodes[0]?.textContent || '').catch(() => '');
-      if (onlyDigits(cpfText) === cpf) {
-        const raw = (await nameSpan.nth(i).textContent()) || '';
-        clienteId = (raw.match(/\d+/) || [])[0];
-        clienteNome = raw.replace(/^\d+/, '').trim();
-        await nameSpan.nth(i).click();
-        break;
+    // Le todos os resultados em uma unica chamada (evita ficar reavaliando o DOM
+    // linha a linha entre awaits, o que pode ficar defasado se a lista re-renderizar).
+    await page.waitForTimeout(300);
+    const match = await page.evaluate((cpfBusca) => {
+      const onlyDigitsInner = (s) => String(s || '').replace(/\D/g, '');
+      const spans = Array.from(document.querySelectorAll('span.id_razao_fantasia'));
+      for (const span of spans) {
+        const li = span.closest('li.x-cmp-searchbar-registro-listMaster');
+        const cpfSpan = li?.querySelector('span.cnpj_cpf_email_entereco');
+        const cpfLine = cpfSpan?.childNodes[0]?.textContent || '';
+        if (onlyDigitsInner(cpfLine) === cpfBusca) {
+          const raw = span.textContent || '';
+          return { id: (raw.match(/\d+/) || [])[0] || null, nome: raw.replace(/^\d+/, '').trim() };
+        }
       }
-    }
-    if (clienteId === null) throw new Error('Cliente nao encontrado no IXC para este CPF');
+      return null;
+    }, cpf);
+    if (!match) throw new Error('Cliente nao encontrado no IXC para este CPF');
+    const { id: clienteId, nome: clienteNome } = match;
+
+    await clickBySelector(page, `li[id="${clienteId}"] span.id_razao_fantasia`);
 
     await page.waitForTimeout(3000);
     const clientFrame = page.frames().find((f) => f.url().includes('index_cliente'));
