@@ -47,6 +47,19 @@ function findLoginFrame(page) {
 }
 
 async function login(page, email, senha) {
+  let ultimaMensagemErro = null;
+  page.on('response', async (res) => {
+    if (!res.url().includes('/model/login/login.php') && !res.url().includes('api-module/auth/login')) return;
+    try {
+      const body = JSON.parse(await res.text());
+      const item = Array.isArray(body) ? body[0] : body;
+      if (item?.status === '0' || item?.tipo === 'erro') {
+        const msg = item.messages?.[0]?.body || item.mensagem;
+        if (typeof msg === 'string') ultimaMensagemErro = msg;
+      }
+    } catch { /* resposta nao-JSON, ignora */ }
+  });
+
   await page.goto(ADM_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
 
@@ -73,7 +86,13 @@ async function login(page, email, senha) {
   }
 
   frame = findLoginFrame(page);
-  if (frame) throw new Error('Nao foi possivel autenticar no IXC (verifique e-mail/senha configurados, ou ha uma sessao presa que nao foi possivel encerrar)');
+  if (frame) {
+    throw new Error(
+      ultimaMensagemErro
+        ? `Falha ao autenticar no IXC: ${ultimaMensagemErro}`
+        : 'Nao foi possivel autenticar no IXC (verifique e-mail/senha configurados, ou ha uma sessao presa que nao foi possivel encerrar)'
+    );
+  }
 
   // Modal de configuracao de 2FA pode aparecer com atraso apos o login; dispensamos
   // sem ativar (o botao so "adia" o aviso, nao habilita nada). Espera ativamente
