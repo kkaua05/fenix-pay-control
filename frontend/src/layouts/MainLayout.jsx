@@ -30,8 +30,8 @@ const MainLayout = ({ children }) => {
     { path: '/pagamento-rapido', label: 'Pagamento Rápido', icon: '📸' },
     { path: '/clientes', label: 'Clientes', icon: '👤' },
     { path: '/arquivos', label: 'Arquivos', icon: '📁' },
+    { path: '/faturas/buscar', label: 'Buscar Fatura', icon: '🤖' },
     { path: '/relatorios', label: 'Relatórios', icon: '📈' },
-    // { path: '/automacao', label: 'Automação', icon: '🤖' }, // REMOVIDO
     ...(isAdmin ? [{ path: '/usuarios', label: 'Usuários', icon: '👥' }] : []),
     ...(isAdmin ? [{ path: '/auditoria', label: 'Auditoria', icon: '🔍' }] : [])
   ];

@@ -11,6 +11,7 @@ import api from '../services/api';
 const CATEGORIAS = [
   { value: 'todos', label: '📂 Todos', color: '#B0B8C8' },
   { value: 'comprovante', label: '🧾 Comprovante', color: '#FF6B00' },
+  { value: 'fatura', label: '💰 Fatura', color: '#00C853' },
   { value: 'documento', label: '📄 Documento', color: '#2979FF' },
   { value: 'contrato', label: '📋 Contrato', color: '#FFAB00' },
   { value: 'nota_fiscal', label: '📑 Nota Fiscal', color: '#00E676' },

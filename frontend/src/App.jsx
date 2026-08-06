@@ -18,7 +18,7 @@ import Auditoria from './pages/Auditoria';
 import Clientes from './pages/Clientes';
 import GerenciadorArquivos from './pages/GerenciadorArquivos';
 import PagamentoRapido from './pages/PagamentoRapido';
-// import AutomacaoPortal from './pages/AutomacaoPortal'; // REMOVIDO
+import BuscarFatura from './pages/BuscarFatura';
 
 function App() {
   return (
@@ -44,7 +44,7 @@ function App() {
                 <Route path="/arquivos" element={<GerenciadorArquivos />} />
                 <Route path="/arquivos/pagamento/:pagamento_id" element={<GerenciadorArquivos />} />
                 <Route path="/pagamento-rapido" element={<PagamentoRapido />} />
-                {/* <Route path="/automacao" element={<AutomacaoPortal />} /> // REMOVIDO */}
+                <Route path="/faturas/buscar" element={<BuscarFatura />} />
               </Route>
             </Routes>
             

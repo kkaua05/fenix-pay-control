@@ -731,6 +731,51 @@ app.delete('/api/arquivos/:id', auth, async (req, res) => {
   }
 });
 
+// FATURAS - Automacao do Portal do Cliente (fenixwireless)
+app.post('/api/faturas/buscar-portal', auth, async (req, res) => {
+  try {
+    await ensureArquivosSchema();
+    const { cpf } = req.body;
+    if (!cpf) return res.status(400).json({ success: false, message: 'CPF é obrigatório' });
+
+    const { buscarFaturaPortal } = require('./faturasPortal');
+    const resultado = await buscarFaturaPortal(cpf);
+
+    if (resultado.semFaturaPendente) {
+      return res.json({ success: true, semFaturaPendente: true, cliente: resultado.cliente });
+    }
+
+    const cpfDigits = String(cpf).replace(/\D/g, '');
+    const clienteMatch = await query(
+      `SELECT id FROM clientes WHERE regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1 LIMIT 1`,
+      [cpfDigits]
+    );
+    const clienteId = clienteMatch.rows[0]?.id || null;
+
+    const nomeArquivo = `Fatura ${resultado.fatura.numero || Date.now()}.pdf`;
+    const blob = await put(`faturas/${Date.now()}-${nomeArquivo.replace(/[^\w.\-]+/g, '_')}`, resultado.pdfBuffer, {
+      access: 'public', contentType: 'application/pdf', addRandomSuffix: true
+    });
+
+    const descricao = `Fatura ${resultado.fatura.numero || ''} · Venc. ${resultado.fatura.vencimento || '-'} · ${resultado.fatura.valor?.replace(/\s+/g, ' ').trim() || ''} · Cliente: ${resultado.cliente.nome}`;
+    const insert = await query(
+      `INSERT INTO arquivos (nome_original,nome_arquivo,caminho,tamanho,tipo,categoria,descricao,cliente_id,usuario_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [nomeArquivo, blob.pathname, blob.url, resultado.pdfBuffer.length, 'application/pdf', 'fatura', descricao, clienteId, req.user.id]
+    );
+
+    res.status(201).json({
+      success: true,
+      semFaturaPendente: false,
+      cliente: resultado.cliente,
+      fatura: resultado.fatura,
+      clienteVinculado: !!clienteId,
+      arquivo: mapArquivo(insert.rows[0])
+    });
+  } catch (error) {
+    res.status(502).json({ success: false, message: 'Falha ao buscar fatura no portal: ' + error.message });
+  }
+});
+
 // ============================================================
 // 404 Handler
 // ============================================================
