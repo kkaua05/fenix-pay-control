@@ -15,7 +15,7 @@ const onlyDigits = (s) => String(s || '').replace(/\D/g, '');
 async function launchBrowser() {
   const { chromium } = require('playwright-core');
   if (process.env.VERCEL) {
-    const chromiumBinary = require('@sparticuz/chromium');
+    const chromiumBinary = (await import('@sparticuz/chromium')).default;
     return chromium.launch({
       args: chromiumBinary.args,
       executablePath: await chromiumBinary.executablePath(),
