@@ -76,7 +76,9 @@ async function buscarFaturaPortal(cpfInput) {
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
 
     const pagarFaturaBtn = page.locator('a[data-target="#modalConsultarFatura"]').first();
-    if (await pagarFaturaBtn.count() === 0) {
+    try {
+      await pagarFaturaBtn.waitFor({ state: 'attached', timeout: 12000 });
+    } catch {
       return {
         semFaturaPendente: true,
         cliente: { id: dadosCliente.id, nome: dadosCliente.razao, cpf: dadosCliente.cnpj_cpf }
