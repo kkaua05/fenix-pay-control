@@ -82,17 +82,18 @@ async function login(page, email, senha) {
   await frame.locator('#password').fill(senha);
   await page.waitForTimeout(300);
   await frame.locator('#btn-enter-login').click();
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2000);
 
   // Conta de admin permite so uma sessao ativa: quando ha conflito, cada clique
   // extra em "Entrar" confirma/forca a nova sessao (mensagem: "Ja existe uma
-  // sessao ativa..."). Tenta algumas vezes pois pode haver mais de uma sessao
-  // presa (ex: execucoes anteriores que nao fecharam o navegador direito).
-  for (let tentativa = 0; tentativa < 3; tentativa++) {
+  // sessao ativa..."). Se a function serverless for encerrada por timeout no
+  // meio de uma execucao anterior, o browser.close() do finally nunca roda e a
+  // sessao fica presa no IXC - por isso tenta varias vezes.
+  for (let tentativa = 0; tentativa < 6; tentativa++) {
     frame = findLoginFrame(page);
     if (!frame) break;
     await frame.locator('#btn-enter-login').click();
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(2200);
   }
 
   frame = findLoginFrame(page);
