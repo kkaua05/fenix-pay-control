@@ -61,16 +61,19 @@ async function login(page, email, senha) {
   await frame.locator('#btn-enter-login').click();
   await page.waitForTimeout(2500);
 
-  // Conta de admin permite so uma sessao ativa: se houver conflito, um segundo
-  // clique confirma e forca a nova sessao (mensagem: "Ja existe uma sessao ativa...")
-  frame = findLoginFrame(page);
-  if (frame) {
+  // Conta de admin permite so uma sessao ativa: quando ha conflito, cada clique
+  // extra em "Entrar" confirma/forca a nova sessao (mensagem: "Ja existe uma
+  // sessao ativa..."). Tenta algumas vezes pois pode haver mais de uma sessao
+  // presa (ex: execucoes anteriores que nao fecharam o navegador direito).
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    frame = findLoginFrame(page);
+    if (!frame) break;
     await frame.locator('#btn-enter-login').click();
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(3500);
   }
 
   frame = findLoginFrame(page);
-  if (frame) throw new Error('Nao foi possivel autenticar no IXC (verifique e-mail/senha configurados)');
+  if (frame) throw new Error('Nao foi possivel autenticar no IXC (verifique e-mail/senha configurados, ou ha uma sessao presa que nao foi possivel encerrar)');
 
   // Modal de configuracao de 2FA pode aparecer no primeiro acesso da sessao;
   // dispensamos sem ativar (o botao so "adia" o aviso, nao habilita nada)
