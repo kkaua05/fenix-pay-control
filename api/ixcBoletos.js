@@ -46,6 +46,16 @@ function findLoginFrame(page) {
   return page.frames().find((f) => f.url().includes('/app/login'));
 }
 
+// O painel ocasionalmente deixa um overlay de fundo (#backgroundContent) preso
+// na tela apos fechar um modal (ex: aviso de 2FA), bloqueando cliques em
+// qualquer elemento abaixo dele. Chamamos isso antes de cada interacao
+// sensivel em vez de confiar numa unica limpeza logo apos o login.
+async function limparOverlay(page) {
+  await page.evaluate(() => {
+    document.querySelectorAll('#backgroundContent').forEach((el) => el.remove());
+  }).catch(() => {});
+}
+
 async function login(page, email, senha) {
   let ultimaMensagemErro = null;
   page.on('response', async (res) => {
@@ -104,12 +114,7 @@ async function login(page, email, senha) {
     await page.waitForTimeout(1000);
   } catch { /* modal nao apareceu neste login - segue normalmente */ }
 
-  // Garantia final: qualquer overlay de fundo restante (outro modal/aviso) nao
-  // deve bloquear a interacao com o dashboard.
-  await page.evaluate(() => {
-    const bg = document.querySelector('#backgroundContent');
-    if (bg) bg.remove();
-  });
+  await limparOverlay(page);
 }
 
 async function buscarBoletosAbertos(cpfInput) {
@@ -126,9 +131,10 @@ async function buscarBoletosAbertos(cpfInput) {
     page.setDefaultTimeout(NAV_TIMEOUT_MS);
 
     await login(page, email, senha);
+    await limparOverlay(page);
 
     const searchBox = page.locator('input[placeholder="Contém..."]');
-    await searchBox.click();
+    await searchBox.click({ force: true });
     await searchBox.pressSequentially(cpf, { delay: 40 });
     await page.waitForTimeout(1500);
 
@@ -161,8 +167,9 @@ async function buscarBoletosAbertos(cpfInput) {
     if (!clientFrame) throw new Error('Painel do cliente nao abriu no IXC');
     await clickBySelector(page, '#edita_cliente', { inFrame: clientFrame });
     await page.waitForTimeout(2500);
+    await limparOverlay(page);
 
-    await page.locator('a.tabTitle:has-text("Financeiro")').click();
+    await page.locator('a.tabTitle:has-text("Financeiro")').click({ force: true });
     await page.waitForSelector('table tbody tr', { timeout: NAV_TIMEOUT_MS });
     await page.waitForTimeout(1000);
 
@@ -190,8 +197,10 @@ async function buscarBoletosAbertos(cpfInput) {
     }
     await page.waitForTimeout(500);
 
+    await limparOverlay(page);
     await clickBySelector(page, 'button[name="imprimir_goletos"]');
     await page.waitForSelector('#layout_impressao', { state: 'attached', timeout: NAV_TIMEOUT_MS });
+    await limparOverlay(page);
     await page.locator('#layout_impressao').selectOption({ label: '3 por página personalizável + PIX Cobrança' });
     await page.waitForTimeout(500);
 
