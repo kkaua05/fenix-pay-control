@@ -250,6 +250,9 @@ const Clientes = () => {
                   <td style={{ fontWeight: '600', color: '#FF6B00' }}>#{cliente.id}</td>
                   <td>
                     <div style={{ fontWeight: '500', color: '#FFFFFF' }}>{cliente.nome_completo}</div>
+                    {cliente.ixc_id && (
+                      <div style={{ fontSize: '0.7rem', color: '#6B7280', marginTop: '2px' }}>IXC #{cliente.ixc_id}</div>
+                    )}
                   </td>
                   <td style={{ fontFamily: 'monospace', letterSpacing: '0.5px' }}>
                     {formatCpf(cliente.cpf)}

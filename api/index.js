@@ -305,7 +305,18 @@ app.get('/api/clientes/search', auth, async (req, res) => {
   try {
     const term=req.query.q||req.query.term||'';
     if(!term) return res.json({success:true,data:[]});
-    const result = await query(`SELECT * FROM clientes WHERE nome_completo ILIKE $1 OR cpf ILIKE $1 OR CAST(id AS TEXT) ILIKE $1 ORDER BY nome_completo LIMIT 20`, [`%${term}%`]);
+    // Busca por CPF/telefone digitados sem pontuacao (ex: so numeros) precisa
+    // comparar contra o CPF salvo tambem sem pontuacao, senao "06055997002"
+    // nunca bate com "060.559.970-02" guardado no banco.
+    const termDigits = term.replace(/\D/g, '');
+    let sql = `SELECT * FROM clientes WHERE nome_completo ILIKE $1 OR cpf ILIKE $1 OR CAST(id AS TEXT) ILIKE $1 OR CAST(ixc_id AS TEXT) ILIKE $1`;
+    const params = [`%${term}%`];
+    if (termDigits) {
+      sql += ` OR regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') LIKE $2`;
+      params.push(`%${termDigits}%`);
+    }
+    sql += ` ORDER BY nome_completo LIMIT 20`;
+    const result = await query(sql, params);
     res.json({success:true,data:result.rows||[]});
   } catch(error){
     res.status(500).json({success:false,data:[]});
