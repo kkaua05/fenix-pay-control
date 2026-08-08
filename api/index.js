@@ -777,14 +777,34 @@ app.post('/api/faturas/buscar-portal', auth, async (req, res) => {
 });
 
 // BOLETOS - Automacao do Painel Administrativo IXC (conta de servico)
+let automacaoSchemaReady = false;
+async function ensureAutomacaoSchema() {
+  if (automacaoSchemaReady) return;
+  await query(`CREATE TABLE IF NOT EXISTS automacao_sessoes (chave VARCHAR(50) PRIMARY KEY, dados JSONB NOT NULL, atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+  automacaoSchemaReady = true;
+}
+
 app.post('/api/faturas/buscar-ixc-boletos', auth, isAdmin, async (req, res) => {
   try {
     await ensureArquivosSchema();
+    await ensureAutomacaoSchema();
     const { cpf } = req.body;
     if (!cpf) return res.status(400).json({ success: false, message: 'CPF é obrigatório' });
 
+    const sessaoRow = await query(`SELECT dados FROM automacao_sessoes WHERE chave = 'ixc_admin'`);
+    const storageState = sessaoRow.rows[0]?.dados || null;
+
     const { buscarBoletosAbertos } = require('./ixcBoletos');
-    const resultado = await buscarBoletosAbertos(cpf);
+    const resultado = await buscarBoletosAbertos(cpf, {
+      storageState,
+      onSessionUpdate: async (novoEstado) => {
+        await query(
+          `INSERT INTO automacao_sessoes (chave, dados, atualizado_em) VALUES ('ixc_admin', $1, CURRENT_TIMESTAMP)
+           ON CONFLICT (chave) DO UPDATE SET dados = $1, atualizado_em = CURRENT_TIMESTAMP`,
+          [JSON.stringify(novoEstado)]
+        );
+      }
+    });
 
     if (resultado.semBoletosPendentes) {
       return res.json({ success: true, semBoletosPendentes: true, cliente: resultado.cliente });
