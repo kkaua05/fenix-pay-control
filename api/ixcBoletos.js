@@ -24,18 +24,26 @@ async function launchBrowser() {
   const { chromium } = require('playwright-core');
   if (process.env.VERCEL) {
     const chromiumBinary = (await import('@sparticuz/chromium')).default;
-    // --single-process reduz uso de memoria mas se mostrou instavel aqui
-    // (crashes em "Target page, context or browser has been closed" logo no
-    // inicio da navegacao). Rodar multi-processo custa mais memoria, mas ja
-    // aumentamos a function para o teto do plano (2048MB) para compensar.
-    const args = chromiumBinary.args.filter((a) => a !== '--single-process');
     return chromium.launch({
-      args,
+      args: chromiumBinary.args,
       executablePath: await chromiumBinary.executablePath(),
       headless: true,
     });
   }
   return chromium.launch({ headless: true });
+}
+
+// A automacao so precisa do DOM/dados, nao da renderizacao visual. Bloquear
+// imagens/midia/fontes reduz a carga de memoria no Chromium serverless (que
+// se mostrou instavel em paginas mais pesadas, ex: dashboard do cliente com
+// graficos) sem tocar em CSS/JS - alguns componentes da pagina inicializam
+// atrelados ao carregamento do stylesheet, entao esse continua liberado.
+async function bloquearRecursosPesados(context) {
+  await context.route('**/*', (route) => {
+    const tipo = route.request().resourceType();
+    if (['image', 'media', 'font'].includes(tipo)) return route.abort();
+    route.continue();
+  });
 }
 
 async function clickBySelector(page, selector, { inFrame } = {}) {
@@ -126,17 +134,17 @@ async function fazerLogin(page, email, senha) {
 
 // Garante um contexto autenticado: tenta reaproveitar o storageState informado;
 // se a sessao salva estiver expirada (ou nao existir), faz login de verdade.
-// O Chromium serverless roda em --single-process, que se mostrou instavel ao
-// criar um SEGUNDO contexto no mesmo processo de navegador (ex: quando a
-// sessao salva expira e precisamos cair pro login completo) - por isso cada
-// tentativa (reaproveitar / logar do zero / retry por falha) sempre usa um
-// processo de navegador novo, nunca reaproveita `browser` entre tentativas.
+// Cada tentativa (reaproveitar / logar do zero / retry por falha) sempre usa
+// um processo de navegador novo, nunca reaproveita `browser` entre tentativas -
+// mais seguro no Chromium serverless caso uma tentativa deixe o processo num
+// estado ruim.
 async function garantirSessao(storageState, email, senha) {
   if (storageState) {
     let browser;
     try {
       browser = await launchBrowser();
       const context = await browser.newContext({ viewport: { width: 1600, height: 1200 }, storageState });
+      await bloquearRecursosPesados(context);
       const page = await context.newPage();
       page.setDefaultTimeout(NAV_TIMEOUT_MS);
       await page.goto(ADM_URL, { waitUntil: 'domcontentloaded' });
@@ -153,6 +161,7 @@ async function garantirSessao(storageState, email, senha) {
 
   const browser = await launchBrowser();
   const context = await browser.newContext({ viewport: { width: 1600, height: 1200 } });
+  await bloquearRecursosPesados(context);
   const page = await context.newPage();
   page.setDefaultTimeout(NAV_TIMEOUT_MS);
   await fazerLogin(page, email, senha);
