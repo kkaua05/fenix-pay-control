@@ -152,9 +152,27 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
   const senha = process.env.IXC_ADMIN_PASSWORD;
   if (!email || !senha) throw new Error('IXC_ADMIN_EMAIL/IXC_ADMIN_PASSWORD nao configurados no Vercel');
 
-  const browser = await launchBrowser();
+  // O Chromium do ambiente serverless ocasionalmente falha ao iniciar ou trava
+  // logo no comeco (ex: pressao de memoria); tenta uma segunda vez do zero
+  // antes de desistir, em vez de propagar um erro criptico de "browser fechado".
+  let browser;
+  let sessao;
+  let ultimoErro;
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      browser = await launchBrowser();
+      sessao = await garantirSessao(browser, storageState, email, senha);
+      break;
+    } catch (e) {
+      ultimoErro = e;
+      if (browser) await browser.close().catch(() => {});
+      browser = null;
+    }
+  }
+  if (!sessao) throw new Error(`Falha ao iniciar o navegador para acessar o IXC: ${ultimoErro?.message || 'motivo desconhecido'}`);
+
   try {
-    const { context, page } = await garantirSessao(browser, storageState, email, senha);
+    const { context, page } = sessao;
     try {
       // Persiste a sessao assim que confirmada valida (reaproveitada ou recem-logada),
       // antes de seguir com o resto do fluxo - assim, mesmo que uma etapa mais
@@ -182,8 +200,12 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
           const cpfSpan = li?.querySelector('span.cnpj_cpf_email_entereco');
           const cpfLine = cpfSpan?.childNodes[0]?.textContent || '';
           if (onlyDigitsInner(cpfLine) === cpfBusca) {
-            const raw = span.textContent || '';
-            return { id: (raw.match(/\d+/) || [])[0] || null, nome: raw.replace(/^\d+/, '').trim() };
+            // O span mostra "ID<br>razao<br>fantasia<br>"; quando razao e fantasia
+            // sao iguais (comum em cliente pessoa fisica), o nome aparece repetido.
+            const partes = span.innerHTML.split(/<br\s*\/?>/i).map((p) => p.replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+            const id = partes[0]?.match(/^\d+$/) ? partes.shift() : (span.textContent.match(/\d+/) || [])[0];
+            const nome = [...new Set(partes)].join(' ').trim();
+            return { id: id || null, nome };
           }
         }
         return null;
