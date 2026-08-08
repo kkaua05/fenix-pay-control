@@ -466,7 +466,37 @@ async function ensureArquivosSchema() {
   await query(`ALTER TABLE arquivos ADD COLUMN IF NOT EXISTS destaque BOOLEAN DEFAULT false`);
   await query(`ALTER TABLE compartilhamentos ADD COLUMN IF NOT EXISTS max_downloads INTEGER DEFAULT 0`);
   await query(`ALTER TABLE compartilhamentos ADD COLUMN IF NOT EXISTS downloads_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS ixc_id INTEGER`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_clientes_ixc_id ON clientes(ixc_id)`);
   arquivosSchemaReady = true;
+}
+
+const formatarCpf = (digits) => {
+  const d = String(digits || '').replace(/\D/g, '');
+  if (d.length !== 11) return digits || null;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+};
+
+// Encontra o cliente local pelo CPF (ou pelo ID do IXC, se ja vinculado antes) e,
+// se nao existir, cadastra automaticamente com os dados trazidos pela automacao.
+async function garantirClienteLocal({ nome, cpf, ixcId }) {
+  const cpfDigits = String(cpf || '').replace(/\D/g, '');
+  const ixcIdNum = ixcId ? parseInt(ixcId, 10) : null;
+  const existente = await query(
+    `SELECT id, ixc_id FROM clientes WHERE regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1 OR (ixc_id IS NOT NULL AND ixc_id = $2) LIMIT 1`,
+    [cpfDigits, ixcIdNum]
+  );
+  if (existente.rows[0]) {
+    if (ixcIdNum && !existente.rows[0].ixc_id) {
+      await query('UPDATE clientes SET ixc_id=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2', [ixcIdNum, existente.rows[0].id]);
+    }
+    return { clienteId: existente.rows[0].id, criado: false };
+  }
+  const novo = await query(
+    `INSERT INTO clientes (nome_completo, cpf, ixc_id) VALUES ($1,$2,$3) RETURNING id`,
+    [nome || `Cliente ${formatarCpf(cpfDigits)}`, formatarCpf(cpfDigits), ixcIdNum]
+  );
+  return { clienteId: novo.rows[0].id, criado: true };
 }
 app.use('/api/arquivos', async (req, res, next) => {
   try { await ensureArquivosSchema(); next(); }
@@ -745,12 +775,11 @@ app.post('/api/faturas/buscar-portal', auth, async (req, res) => {
       return res.json({ success: true, semFaturaPendente: true, cliente: resultado.cliente });
     }
 
-    const cpfDigits = String(cpf).replace(/\D/g, '');
-    const clienteMatch = await query(
-      `SELECT id FROM clientes WHERE regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1 LIMIT 1`,
-      [cpfDigits]
-    );
-    const clienteId = clienteMatch.rows[0]?.id || null;
+    const { clienteId, criado: clienteCriado } = await garantirClienteLocal({
+      nome: resultado.cliente.nome,
+      cpf: resultado.cliente.cpf,
+      ixcId: resultado.cliente.id
+    });
 
     const nomeArquivo = `Fatura ${resultado.fatura.numero || Date.now()}.pdf`;
     const blob = await put(`faturas/${Date.now()}-${nomeArquivo.replace(/[^\w.\-]+/g, '_')}`, resultado.pdfBuffer, {
@@ -768,7 +797,8 @@ app.post('/api/faturas/buscar-portal', auth, async (req, res) => {
       semFaturaPendente: false,
       cliente: resultado.cliente,
       fatura: resultado.fatura,
-      clienteVinculado: !!clienteId,
+      clienteVinculado: true,
+      clienteCriado,
       arquivo: mapArquivo(insert.rows[0])
     });
   } catch (error) {
@@ -811,11 +841,11 @@ app.post('/api/faturas/buscar-ixc-boletos', auth, isAdmin, async (req, res) => {
     }
 
     const cpfDigits = String(cpf).replace(/\D/g, '');
-    const clienteMatch = await query(
-      `SELECT id FROM clientes WHERE regexp_replace(COALESCE(cpf,''), '[^0-9]', '', 'g') = $1 LIMIT 1`,
-      [cpfDigits]
-    );
-    const clienteId = clienteMatch.rows[0]?.id || null;
+    const { clienteId, criado: clienteCriado } = await garantirClienteLocal({
+      nome: resultado.cliente.nome,
+      cpf: resultado.cliente.cpf,
+      ixcId: resultado.cliente.id
+    });
 
     const nomeArquivo = `Boletos ${resultado.cliente.nome || cpfDigits} ${Date.now()}.pdf`;
     const blob = await put(`boletos/${Date.now()}-${nomeArquivo.replace(/[^\w.\-]+/g, '_')}`, resultado.pdfBuffer, {
@@ -835,7 +865,8 @@ app.post('/api/faturas/buscar-ixc-boletos', auth, isAdmin, async (req, res) => {
       cliente: resultado.cliente,
       titulos: resultado.titulos,
       totalValor,
-      clienteVinculado: !!clienteId,
+      clienteVinculado: true,
+      clienteCriado,
       arquivo: mapArquivo(insert.rows[0])
     });
   } catch (error) {

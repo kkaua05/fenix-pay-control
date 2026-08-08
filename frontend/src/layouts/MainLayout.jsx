@@ -30,8 +30,7 @@ const MainLayout = ({ children }) => {
     { path: '/pagamento-rapido', label: 'Pagamento Rápido', icon: '📸' },
     { path: '/clientes', label: 'Clientes', icon: '👤' },
     { path: '/arquivos', label: 'Arquivos', icon: '📁' },
-    { path: '/faturas/buscar', label: 'Buscar Fatura', icon: '🤖' },
-    ...(isAdmin ? [{ path: '/faturas/boletos-ixc', label: 'Boletos em Aberto', icon: '🧾' }] : []),
+    { path: '/faturas/buscar', label: 'Buscar Fatura/Boletos', icon: '🤖' },
     { path: '/relatorios', label: 'Relatórios', icon: '📈' },
     ...(isAdmin ? [{ path: '/usuarios', label: 'Usuários', icon: '👥' }] : []),
     ...(isAdmin ? [{ path: '/auditoria', label: 'Auditoria', icon: '🔍' }] : [])
