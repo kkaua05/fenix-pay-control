@@ -24,8 +24,13 @@ async function launchBrowser() {
   const { chromium } = require('playwright-core');
   if (process.env.VERCEL) {
     const chromiumBinary = (await import('@sparticuz/chromium')).default;
+    // --single-process reduz uso de memoria mas se mostrou instavel aqui
+    // (crashes em "Target page, context or browser has been closed" logo no
+    // inicio da navegacao). Rodar multi-processo custa mais memoria, mas ja
+    // aumentamos a function para o teto do plano (2048MB) para compensar.
+    const args = chromiumBinary.args.filter((a) => a !== '--single-process');
     return chromium.launch({
-      args: chromiumBinary.args,
+      args,
       executablePath: await chromiumBinary.executablePath(),
       headless: true,
     });
