@@ -121,9 +121,16 @@ async function fazerLogin(page, email, senha) {
 
 // Garante um contexto autenticado: tenta reaproveitar o storageState informado;
 // se a sessao salva estiver expirada (ou nao existir), faz login de verdade.
-async function garantirSessao(browser, storageState, email, senha) {
+// O Chromium serverless roda em --single-process, que se mostrou instavel ao
+// criar um SEGUNDO contexto no mesmo processo de navegador (ex: quando a
+// sessao salva expira e precisamos cair pro login completo) - por isso cada
+// tentativa (reaproveitar / logar do zero / retry por falha) sempre usa um
+// processo de navegador novo, nunca reaproveita `browser` entre tentativas.
+async function garantirSessao(storageState, email, senha) {
   if (storageState) {
+    let browser;
     try {
+      browser = await launchBrowser();
       const context = await browser.newContext({ viewport: { width: 1600, height: 1200 }, storageState });
       const page = await context.newPage();
       page.setDefaultTimeout(NAV_TIMEOUT_MS);
@@ -131,17 +138,20 @@ async function garantirSessao(browser, storageState, email, senha) {
       await page.waitForTimeout(1200);
       if (!findLoginFrame(page)) {
         await limparOverlay(page);
-        return { context, page };
+        return { browser, context, page };
       }
-      await context.close();
-    } catch { /* storageState invalido/corrompido ou sessao expirada - segue para login completo */ }
+      await browser.close();
+    } catch { /* storageState invalido/corrompido, sessao expirada ou falha do navegador - segue para login completo */
+      if (browser) await browser.close().catch(() => {});
+    }
   }
 
+  const browser = await launchBrowser();
   const context = await browser.newContext({ viewport: { width: 1600, height: 1200 } });
   const page = await context.newPage();
   page.setDefaultTimeout(NAV_TIMEOUT_MS);
   await fazerLogin(page, email, senha);
-  return { context, page };
+  return { browser, context, page };
 }
 
 async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } = {}) {
@@ -155,22 +165,18 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
   // O Chromium do ambiente serverless ocasionalmente falha ao iniciar ou trava
   // logo no comeco (ex: pressao de memoria); tenta uma segunda vez do zero
   // antes de desistir, em vez de propagar um erro criptico de "browser fechado".
-  let browser;
   let sessao;
   let ultimoErro;
-  for (let tentativa = 0; tentativa < 2; tentativa++) {
+  for (let tentativa = 0; tentativa < 2 && !sessao; tentativa++) {
     try {
-      browser = await launchBrowser();
-      sessao = await garantirSessao(browser, storageState, email, senha);
-      break;
+      sessao = await garantirSessao(storageState, email, senha);
     } catch (e) {
       ultimoErro = e;
-      if (browser) await browser.close().catch(() => {});
-      browser = null;
     }
   }
   if (!sessao) throw new Error(`Falha ao iniciar o navegador para acessar o IXC: ${ultimoErro?.message || 'motivo desconhecido'}`);
 
+  const { browser } = sessao;
   try {
     const { context, page } = sessao;
     try {
