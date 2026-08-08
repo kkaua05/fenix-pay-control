@@ -90,11 +90,11 @@ async function fazerLogin(page, email, senha) {
   // em paralelo (agora que reaproveitamos sessao entre chamadas, nao devemos
   // mais gerar esse conflito sozinhos). Mesmo assim, mantemos alguns cliques de
   // confirmacao como rede de seguranca.
-  for (let tentativa = 0; tentativa < 4; tentativa++) {
+  for (let tentativa = 0; tentativa < 12; tentativa++) {
     frame = findLoginFrame(page);
     if (!frame) break;
     await frame.locator('#btn-enter-login').click();
-    await page.waitForTimeout(2200);
+    await page.waitForTimeout(1800);
   }
 
   frame = findLoginFrame(page);
