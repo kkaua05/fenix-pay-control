@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
+import AnimatedNumber from '../components/common/AnimatedNumber';
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -172,33 +173,6 @@ const Dashboard = () => {
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">Bem-vindo, {user?.nome || 'Usuário'}</p>
         </div>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '12px',
-          flexWrap: 'wrap'
-        }}>
-          <div style={{ 
-            fontSize: '0.85rem', 
-            color: '#6B7280',
-            background: '#161A22',
-            padding: '8px 16px',
-            borderRadius: '10px',
-            border: '1px solid #2A3040',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span style={{ 
-              width: '8px', 
-              height: '8px', 
-              borderRadius: '50%', 
-              background: '#00E676',
-              display: 'inline-block'
-            }} />
-            {new Date().toLocaleString('pt-BR')}
-          </div>
-        </div>
       </div>
 
       {/* Cards Principais */}
@@ -209,8 +183,8 @@ const Dashboard = () => {
               <div style={{ color: '#6B7280', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Pagamentos Hoje
               </div>
-              <div style={{ fontSize: '2.2rem', fontWeight: '700', marginTop: '4px', color: '#FFFFFF' }}>
-                {today?.total || 0}
+              <div className="stat-value" style={{ marginTop: '4px' }}>
+                <AnimatedNumber value={today?.total || 0} />
               </div>
               <div style={{ color: '#00E676', fontSize: '0.95rem', fontWeight: '500' }}>
                 {formatCurrency(today?.valor_total || 0)}
@@ -240,8 +214,8 @@ const Dashboard = () => {
               <div style={{ color: '#6B7280', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Total Geral
               </div>
-              <div style={{ fontSize: '2.2rem', fontWeight: '700', marginTop: '4px', color: '#FFFFFF' }}>
-                {totals?.total || 0}
+              <div className="stat-value" style={{ marginTop: '4px' }}>
+                <AnimatedNumber value={totals?.total || 0} />
               </div>
               <div style={{ color: '#FF6B00', fontSize: '0.95rem', fontWeight: '500' }}>
                 {formatCurrency(totals?.valor_total || 0)}
@@ -271,8 +245,8 @@ const Dashboard = () => {
               <div style={{ color: '#6B7280', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Crédito
               </div>
-              <div style={{ fontSize: '2.2rem', fontWeight: '700', marginTop: '4px', color: '#FFFFFF' }}>
-                {totals?.credito?.count || 0}
+              <div className="stat-value" style={{ marginTop: '4px' }}>
+                <AnimatedNumber value={totals?.credito?.count || 0} />
               </div>
               <div style={{ color: '#2979FF', fontSize: '0.95rem', fontWeight: '500' }}>
                 {formatCurrency(totals?.credito?.valor || 0)}
@@ -302,8 +276,8 @@ const Dashboard = () => {
               <div style={{ color: '#6B7280', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Débito
               </div>
-              <div style={{ fontSize: '2.2rem', fontWeight: '700', marginTop: '4px', color: '#FFFFFF' }}>
-                {totals?.debito?.count || 0}
+              <div className="stat-value" style={{ marginTop: '4px' }}>
+                <AnimatedNumber value={totals?.debito?.count || 0} />
               </div>
               <div style={{ color: '#FFAB00', fontSize: '0.95rem', fontWeight: '500' }}>
                 {formatCurrency(totals?.debito?.valor || 0)}
