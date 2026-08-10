@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import mascote from '../assets/mascote.png';
@@ -37,7 +37,7 @@ const MainLayout = ({ children }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const menuItems = [
+  const menuItems = useMemo(() => [
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/pagamentos', label: 'Pagamentos', icon: '💳' },
     { path: '/pagamentos/novo', label: 'Novo Pagamento', icon: '➕' },
@@ -48,21 +48,30 @@ const MainLayout = ({ children }) => {
     { path: '/relatorios', label: 'Relatórios', icon: '📈' },
     ...(isAdmin ? [{ path: '/usuarios', label: 'Usuários', icon: '👥' }] : []),
     ...(isAdmin ? [{ path: '/auditoria', label: 'Auditoria', icon: '🔍' }] : [])
-  ];
+  ], [isAdmin]);
 
   const isActive = (path) => location.pathname === path;
-  const activeItem = menuItems.find(item => isActive(item.path));
+  const activeItem = useMemo(
+    () => menuItems.find(item => isActive(item.path)),
+    [menuItems, location.pathname]
+  );
+  const activePath = activeItem?.path || null;
 
   const recomputePill = useCallback(() => {
-    const el = activeItem ? itemRefs.current[activeItem.path] : null;
+    const el = activePath ? itemRefs.current[activePath] : null;
     if (el && navRef.current) {
       const navRect = navRef.current.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      setPill({ top: elRect.top - navRect.top, height: elRect.height, opacity: 1 });
+      const next = { top: elRect.top - navRect.top, height: elRect.height, opacity: 1 };
+      setPill(prev => (
+        prev.top === next.top && prev.height === next.height && prev.opacity === next.opacity
+          ? prev
+          : next
+      ));
     } else {
-      setPill(p => ({ ...p, opacity: 0 }));
+      setPill(prev => (prev.opacity === 0 ? prev : { ...prev, opacity: 0 }));
     }
-  }, [activeItem]);
+  }, [activePath]);
 
   useLayoutEffect(() => {
     recomputePill();
