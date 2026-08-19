@@ -836,16 +836,28 @@ app.post('/api/faturas/buscar-ixc-boletos', auth, isAdmin, async (req, res) => {
     const storageState = sessaoRow.rows[0]?.dados || null;
 
     const { buscarBoletosAbertos } = require('./ixcBoletos');
-    const resultado = await buscarBoletosAbertos(cpf, {
-      storageState,
-      onSessionUpdate: async (novoEstado) => {
-        await query(
-          `INSERT INTO automacao_sessoes (chave, dados, atualizado_em) VALUES ('ixc_admin', $1, CURRENT_TIMESTAMP)
-           ON CONFLICT (chave) DO UPDATE SET dados = $1, atualizado_em = CURRENT_TIMESTAMP`,
-          [JSON.stringify(novoEstado)]
-        );
-      }
-    });
+    // maxDuration da function e 60s (vercel.json); se deixarmos o Playwright
+    // livre ate la, a Vercel mata o processo sem devolver resposta e o
+    // usuario so ve "demorou demais". Com 52s damos tempo de responder com
+    // mensagem clara antes disso (a sessao ja foi persistida antes do login
+    // demorado, entao a proxima tentativa comeca reaproveitando-a).
+    const timeoutMs = 52000;
+    const resultado = await Promise.race([
+      buscarBoletosAbertos(cpf, {
+        storageState,
+        onSessionUpdate: async (novoEstado) => {
+          await query(
+            `INSERT INTO automacao_sessoes (chave, dados, atualizado_em) VALUES ('ixc_admin', $1, CURRENT_TIMESTAMP)
+             ON CONFLICT (chave) DO UPDATE SET dados = $1, atualizado_em = CURRENT_TIMESTAMP`,
+            [JSON.stringify(novoEstado)]
+          );
+        }
+      }),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`Tempo limite (${timeoutMs / 1000}s) atingido no painel IXC. A sessão de login já foi salva - tente novamente.`)),
+        timeoutMs
+      ))
+    ]);
 
     if (resultado.semBoletosPendentes) {
       return res.json({ success: true, semBoletosPendentes: true, cliente: resultado.cliente });

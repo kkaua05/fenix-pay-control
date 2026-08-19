@@ -20,6 +20,18 @@ const NAV_TIMEOUT_MS = 20000;
 
 const onlyDigits = (s) => String(s || '').replace(/\D/g, '');
 
+// Log de tempo por etapa - a Vercel mata a function em maxDuration (60s, ver
+// vercel.json) e o erro que chega no frontend e so "demorou demais", sem
+// dizer QUAL etapa comeu o tempo. Esses logs aparecem no painel da Vercel
+// (Deployments > Functions > Logs) e mostram isso na proxima falha.
+// Precisa ser criado por chamada (nao no escopo do modulo): em invocacoes
+// "quentes" o Node reaproveita o modulo ja carregado, entao um t0 fixo no
+// require() ficaria preso ao horario da primeira chamada do processo.
+function criarMarcador() {
+  const t0 = Date.now();
+  return (label) => console.log(`[ixc] ${label} - ${Date.now() - t0}ms`);
+}
+
 async function launchBrowser() {
   const { chromium } = require('playwright-core');
   if (process.env.VERCEL) {
@@ -102,12 +114,13 @@ async function fazerLogin(page, email, senha) {
   // So deve haver conflito de sessao se um humano estiver logado na mesma conta
   // em paralelo (agora que reaproveitamos sessao entre chamadas, nao devemos
   // mais gerar esse conflito sozinhos). Mesmo assim, mantemos alguns cliques de
-  // confirmacao como rede de seguranca.
-  for (let tentativa = 0; tentativa < 12; tentativa++) {
+  // confirmacao como rede de seguranca - poucas tentativas, ja que cada uma
+  // consome orcamento do maxDuration da function na Vercel (60s).
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
     frame = findLoginFrame(page);
     if (!frame) break;
     await frame.locator('#btn-enter-login').click();
-    await page.waitForTimeout(1800);
+    await page.waitForTimeout(1200);
   }
 
   frame = findLoginFrame(page);
@@ -169,6 +182,7 @@ async function garantirSessao(storageState, email, senha) {
 }
 
 async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } = {}) {
+  const mark = criarMarcador();
   const cpf = onlyDigits(cpfInput);
   if (cpf.length !== 11) throw new Error('CPF invalido: informe 11 digitos, sem pontos ou traco');
 
@@ -189,6 +203,7 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
     }
   }
   if (!sessao) throw new Error(`Falha ao iniciar o navegador para acessar o IXC: ${ultimoErro?.message || 'motivo desconhecido'}`);
+  mark(storageState ? 'sessao reaproveitada/login concluido' : 'login concluido (sem sessao previa)');
 
   const { browser } = sessao;
   try {
@@ -232,6 +247,7 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
       }, cpf);
       if (!match) throw new Error('Cliente nao encontrado no IXC para este CPF');
       const { id: clienteId, nome: clienteNome } = match;
+      mark(`cliente encontrado (IXC #${clienteId})`);
 
       await clickBySelector(page, `li[id="${clienteId}"] span.id_razao_fantasia`);
 
@@ -241,10 +257,12 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
       await clickBySelector(page, '#edita_cliente', { inFrame: clientFrame });
       await page.waitForTimeout(2500);
       await limparOverlay(page);
+      mark('cadastro do cliente aberto');
 
       await page.locator('a.tabTitle:has-text("Financeiro")').click({ force: true });
       await page.waitForSelector('table tbody tr', { timeout: NAV_TIMEOUT_MS });
       await page.waitForTimeout(1000);
+      mark('aba financeiro carregada');
 
       const titulos = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('table tbody tr'));
@@ -266,8 +284,10 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
       });
 
       if (!titulos.length) {
+        mark('sem titulos em aberto - encerrando');
         return { semBoletosPendentes: true, cliente: { id: clienteId, nome: clienteNome, cpf: cpfInput } };
       }
+      mark(`${titulos.length} titulo(s) selecionado(s)`);
       await page.waitForTimeout(500);
 
       await limparOverlay(page);
@@ -276,6 +296,7 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
       await limparOverlay(page);
       await page.locator('#layout_impressao').selectOption({ label: '3 por página personalizável + PIX Cobrança' });
       await page.waitForTimeout(500);
+      mark('layout de impressao selecionado');
 
       const pdfResponsePromise = page.waitForResponse(
         (r) => (r.headers()['content-type'] || '').includes('pdf'),
@@ -283,10 +304,12 @@ async function buscarBoletosAbertos(cpfInput, { storageState, onSessionUpdate } 
       );
       await clickBySelector(page, 'form[name="cliente_contrato_rel_areceber_imprime"] #salvar');
       const pdfResp = await pdfResponsePromise;
+      mark('resposta do PDF recebida');
 
       const refetch = await page.request.get(pdfResp.url());
       const pdfBuffer = await refetch.body();
       if (!pdfBuffer || pdfBuffer.length < 100) throw new Error('PDF de boletos retornado pelo IXC esta vazio ou corrompido');
+      mark('PDF baixado - concluido');
 
       return {
         semBoletosPendentes: false,
